@@ -51,6 +51,10 @@ export const Devs = /* #__PURE__*/ Object.freeze({
         name: "V",
         id: 343383572805058560n
     },
+    shitfuckup: {
+        name: "shitfuckup",
+        id: 1155045461615448170n
+    },
     Apexo: {
         name: "Apexo",
         id: 228548952687902720n
@@ -160,10 +164,10 @@ export const Devs = /* #__PURE__*/ Object.freeze({
         name: "Tyman",
         id: 487443883127472129n
     },
-	pluckerpilple: {
-        name: "pluckerpilple",
-        id: 375402345971974147n
-	},
+    shitfuckup: {
+        name: "shitfuckup",
+        id: 1155045461615448170n
+    },
     afn: {
         name: "afn",
         id: 420043923822608384n
