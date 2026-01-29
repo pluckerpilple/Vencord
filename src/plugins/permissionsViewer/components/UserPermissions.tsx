@@ -36,6 +36,7 @@ interface UserPermission {
 }
 
 type UserPermissions = Array<UserPermission>;
+
 const RoleClasses = findCssClassesLazy("role", "roleName", "roleRemoveButton", "roleNameOverflow", "root");
 const RoleBorderClasses = findCssClassesLazy("roleCircle", "dot", "dotBorderColor");
 
@@ -100,10 +101,10 @@ function UserPermissionsComponent({ guild, guildMember, closePopout }: { guild: 
                 permissions: Object.values(PermissionsBits).reduce((prev, curr) => prev | curr, 0n)
             });
 
-            const OWNER = getIntlMessage("GUILD_OWNER") ?? "Owner";
+            const OWNER = getIntlMessage("GUILD_OWNER") ?? "Server Owner";
             userPermissions.push({
                 permission: OWNER,
-                roleName: "(Owner)",
+                roleName: "Owner",
                 roleColor: "var(--primary-300)",
                 rolePosition: Infinity
             });
