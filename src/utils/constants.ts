@@ -168,9 +168,14 @@ export const Devs = /* #__PURE__*/ Object.freeze({
         name: "Tyman",
         id: 487443883127472129n
     },
+    
     afn: {
         name: "afn",
         id: 420043923822608384n
+    },
+    MrDiamond: {
+        name: "mrdiamonddog",
+        id: 523338295644782592n,
     },
     KraXen72: {
         name: "KraXen72",
@@ -629,6 +634,10 @@ export const Devs = /* #__PURE__*/ Object.freeze({
         name: "VV",
         id: 254866377087778816n
     },
+    desu: {
+        name: "desu",
+        id: 526331463709360141n
+    },
     u32: {
         name: "u32",
         id: 1063237286818488351n,
@@ -636,6 +645,14 @@ export const Devs = /* #__PURE__*/ Object.freeze({
     prism: {
         name: "prism",
         id: 390884143749136386n,
+    },
+    Cortex: {
+        name: "Cortex",
+        id: 913205935319691335n
+    },
+    mochienya: {
+        name: "mochie",
+        id: 1043599230247374869n
     },
     sexwithppl: {
         name: "sexwithppl",
