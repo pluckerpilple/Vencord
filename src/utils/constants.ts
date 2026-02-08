@@ -64,6 +64,10 @@ export const Devs = /* #__PURE__*/ Object.freeze({
         id: 674710789138939916n,
         badge: false
     },
+    viciouscal: {
+        name: "viciouscal",
+        id: 883820228360929320n,
+    },
     Cyn: {
         name: "Cynosphere",
         id: 150745989836308480n
