@@ -32,16 +32,41 @@ const settings = definePluginSettings({
 export default definePlugin({
     name: "UnlimitedAccounts",
     description: "Increases the amount of accounts you can add.",
-    authors: [Devs.pluckerpilple],
+    authors: [Devs.thororen, Devs.pluckerpilple],
     settings,
     patches: [
         {
-            find: "multiaccount_cta_tooltip_seen",
-            replacement: {
-                match: /(let \i=)\d+(,\i="switch-accounts-modal")/,
-                replace: "$1$self.getMaxAccounts()$2",
-            },
+            find: "pushSyncToken:null",
+            replacement: [
+                {
+                    match: /(\).length>)5/,
+                    replace: "$1$self.getMaxAccounts()",
+                },
+                {
+                    match: /(\i.splice\()5/,
+                    replace: "$1$self.getMaxAccounts()",
+                },
+            ]
+        },
+        {
+            find: "getCurrentUser(),multiAccountUsers",
+            replacement: [
+                {
+                    match: /(maxNumAccounts:)5/,
+                    replace: "$1$self.getMaxAccounts()",
+                },
+                {
+                    match: /(\i.length<)5/,
+                    replace: "$1$self.getMaxAccounts()",
+                },
+                {
+                    match: /(\i.length>=)5/,
+                    replace: "$1$self.getMaxAccounts()",
+                },
+            ]
         },
     ],
-    getMaxAccounts() { return settings.store.maxAccounts === 0 ? Infinity : settings.store.maxAccounts; },
+    getMaxAccounts() { return settings.store.maxAccounts === 0 ? Infinity : settings.store.maxAccounts;
+
+     },
 });
