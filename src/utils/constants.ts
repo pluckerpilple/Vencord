@@ -242,6 +242,10 @@ export const Devs = /* #__PURE__*/ Object.freeze({
         id: 347884694408265729n,
         badge: false
     },
+    Drag: {
+        name: "dragalt_",
+        id: 1189903210564038697n
+    },
     whqwert: {
         name: "whqwert",
         id: 586239091520176128n
