@@ -96,7 +96,7 @@ function handleVoiceStateUpdate(voiceStates: VoiceState[]) {
     // Handle disconnection and reconnection
     if (!myVoiceState && lastChannelId && pinnedChannelId) {
         const now = Date.now();
-        
+
         if (settings.store.reconnect && now - lastMoveTimestamp > debounceTime) {
             const voiceStates = VoiceStateStore.getVoiceStatesForChannel(lastChannelId);
             const isAlreadyInChannel = voiceStates && Object.keys(voiceStates).includes(myId);
@@ -189,7 +189,7 @@ function addPinChannelContextMenu(children: any, { channel }: { channel: any; })
 export default definePlugin({
     name: "DontControlMe",
     description: "Automatically reconnects, unmutes, undeafens, and prevents movement or disconnection from a pinned channel.",
-    authors: [Devs.pluckerpilple],
+    authors: [Devs.pluckerpilple, Devs.V],
 
     settings,
 
