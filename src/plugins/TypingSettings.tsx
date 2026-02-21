@@ -168,7 +168,7 @@ function removeCaret() {
 function updateCaretPosition() {
     if (!caretEl) return;
 
-    // تحقق إن الـ focus داخل chat input
+    // Check that the focus is within the chat input
     const focused = document.activeElement;
     const isInChat = focused?.closest("[class*='slateTextArea']") || 
                      focused?.closest("[class*='textArea']");
