@@ -168,6 +168,16 @@ function removeCaret() {
 function updateCaretPosition() {
     if (!caretEl) return;
 
+    // تحقق إن الـ focus داخل chat input
+    const focused = document.activeElement;
+    const isInChat = focused?.closest("[class*='slateTextArea']") || 
+                     focused?.closest("[class*='textArea']");
+    
+    if (!isInChat) {
+        caretEl.style.display = "none";
+        return;
+    }
+
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
 
@@ -189,7 +199,7 @@ function updateCaretPosition() {
     caretEl.style.left = `${rect.left}px`;
     caretEl.style.top = `${rect.top}px`;
     caretEl.style.height = `${rect.height || 20}px`;
-}
+}   
 
 function startTracking() {
     stopTracking();
