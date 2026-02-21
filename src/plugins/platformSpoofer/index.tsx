@@ -159,7 +159,7 @@ const ProfilePreview = () => {
 export default definePlugin({
     name: "PlatformSpoofer",
     description: "Spoof what platform or device you're on",
-    authors: [Devs.pluckerpilple, Devs.V],
+    authors: [Devs.pluckerpilple],
     settingsAboutComponent: () => (
         <>
             <Forms.FormText className="plugin-warning">
