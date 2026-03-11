@@ -16,7 +16,8 @@ const platformLabels = {
     desktop: "Desktop",
     web: "Web",
     mobile: "Mobile",
-    embedded: "Console"
+    embedded: "Console",
+    vr: "Vr"
 };
 
 const settings = definePluginSettings({
@@ -42,6 +43,10 @@ const settings = definePluginSettings({
                 label: "Console",
                 value: "embedded",
             },
+            {
+                label: "Vr",
+                value: "vr",
+            }
         ],
         onChange: (newValue: string) => {
             const platformName = platformLabels[newValue] || newValue;
@@ -188,6 +193,8 @@ export default definePlugin({
                 return { browser: "Discord iOS" };
             case "embedded":
                 return { browser: "Discord Embedded" };
+            case "vr":
+                return { browser: "Discord VR" };
         }
     }
 });
