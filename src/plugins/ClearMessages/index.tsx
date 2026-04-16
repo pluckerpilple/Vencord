@@ -4,18 +4,18 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { ApplicationCommandInputType, ApplicationCommandOptionType, sendBotMessage } from "@api/Commands";
+import { ApplicationCommandInputType, sendBotMessage } from "@api/Commands";
 import { definePluginSettings } from "@api/Settings";
 import { Devs } from "@utils/constants";
 import definePlugin, { OptionType } from "@utils/types";
-import { findByPropsLazy } from "@webpack";
-import { RestAPI, UserStore } from "@webpack/common";
+import { RestAPI, GuildStore, RelationshipStore, UserStore } from "@webpack/common";
 
-interface DeleteState {
-    delCount: number;
-    grandTotal: number;
+interface CleanState {
     running: boolean;
     startTime: Date | null;
+    current: number;
+    total: number;
+    phase: string;
 }
 
 const settings = definePluginSettings({
@@ -31,202 +31,570 @@ const settings = definePluginSettings({
     },
 });
 
-let deleteState: DeleteState = {
-    delCount: 0,
-    grandTotal: 0,
+let state: CleanState = {
     running: false,
     startTime: null,
+    current: 0,
+    total: 0,
+    phase: "",
 };
 
 function resetState() {
-    deleteState = {
-        delCount: 0,
-        grandTotal: 0,
+    if (abortController) {
+        abortController.abort();
+        abortController = null;
+    }
+    state = {
         running: false,
         startTime: null,
+        current: 0,
+        total: 0,
+        phase: "",
     };
 }
 
-async function wait(ms: number) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+let abortController: AbortController | null = null;
+
+function wait(ms: number) {
+    return new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(resolve, ms);
+        if (abortController) {
+            abortController.signal.addEventListener("abort", () => {
+                clearTimeout(timeout);
+                reject(new Error("aborted"));
+            });
+        }
+    });
 }
 
-async function searchMessages(channelId: string, authorId?: string, offset?: number) {
-    const params: any = {
-        author_id: authorId,
-        include_nsfw: true,
+let progressBarEl: HTMLDivElement | null = null;
+
+function createProgressBar() {
+    if (progressBarEl) return;
+
+    const container = document.createElement("div");
+    container.id = "clean-progress-bar";
+    container.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        z-index: 99999;
+        background: #1e1f22;
+        padding: 8px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    `;
+
+    const top = document.createElement("div");
+    top.style.cssText = `
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    `;
+
+    const label = document.createElement("div");
+    label.id = "clean-progress-label";
+    label.style.cssText = `
+        color: #fff;
+        font-size: 12px;
+        font-family: monospace;
+    `;
+
+    const stopBtn = document.createElement("button");
+    stopBtn.textContent = "Stop";
+    stopBtn.style.cssText = `
+        background: #ed4245;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        padding: 2px 10px;
+        font-size: 12px;
+        font-family: monospace;
+        cursor: pointer;
+    `;
+    stopBtn.onclick = () => {
+        resetState();
+        removeProgressBar();
     };
 
-    if (offset) {
-        params.offset = offset;
-    }
+    const barBg = document.createElement("div");
+    barBg.style.cssText = `
+        width: 100%;
+        height: 6px;
+        background: #313338;
+        border-radius: 4px;
+        overflow: hidden;
+    `;
 
-    const queryString = new URLSearchParams(params).toString();
-    const endpoint = `/channels/${channelId}/messages/search?${queryString}`;
+    const barFill = document.createElement("div");
+    barFill.id = "clean-progress-fill";
+    barFill.style.cssText = `
+        height: 100%;
+        width: 0%;
+        background: #5865f2;
+        border-radius: 4px;
+        transition: width 0.2s ease;
+    `;
 
-    const maxRetries = 5;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+    barBg.appendChild(barFill);
+    top.appendChild(label);
+    top.appendChild(stopBtn);
+    container.appendChild(top);
+    container.appendChild(barBg);
+    document.body.appendChild(container);
+    progressBarEl = container;
+}
+
+function updateProgressBar(phase: string, current: number, total: number) {
+    const label = document.getElementById("clean-progress-label");
+    const fill = document.getElementById("clean-progress-fill");
+    if (!label || !fill) return;
+
+    const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+    label.textContent = `[${phase}] ${current}/${total} (${pct}%)`;
+    fill.style.width = `${pct}%`;
+}
+
+function removeProgressBar() {
+    const el = document.getElementById("clean-progress-bar");
+    if (el) el.remove();
+    progressBarEl = null;
+}
+
+async function searchMessages(channelId: string, authorId: string, offset: number = 0) {
+    const params: any = { author_id: authorId, include_nsfw: true };
+    if (offset > 0) params.offset = offset;
+
+    const qs = new URLSearchParams(params).toString();
+    const endpoint = `/channels/${channelId}/messages/search?${qs}`;
+
+    for (let attempt = 0; attempt < 10; attempt++) {
         try {
-            const response = await RestAPI.get({ url: endpoint });
-            return response.body;
+            const res = await RestAPI.get({ url: endpoint });
+            return res.body;
         } catch (err: any) {
-            console.error(`Search failed (attempt ${attempt + 1}):`, err);
-            if (attempt === maxRetries - 1) {
-                return null;
+            const status = err?.status ?? err?.response?.status;
+            if (status === 429) {
+                const retryAfter = err?.body?.retry_after ?? err?.response?.body?.retry_after ?? 2;
+                await wait(retryAfter * 1000 + 500);
+                continue;
             }
-            await wait(300 * Math.pow(2, attempt));
+            if (attempt === 9) return null;
+            await wait(500 * Math.pow(2, attempt));
         }
     }
     return null;
 }
 
 async function deleteMessage(channelId: string, messageId: string) {
-    const maxRetries = 5;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
+    for (let attempt = 0; attempt < 10; attempt++) {
         try {
-            await RestAPI.del({
-                url: `/channels/${channelId}/messages/${messageId}`,
-            });
-            deleteState.delCount++;
+            await RestAPI.del({ url: `/channels/${channelId}/messages/${messageId}` });
+            state.current++;
+            updateProgressBar(state.phase, state.current, state.total);
             return true;
         } catch (err: any) {
-            if (attempt === maxRetries - 1) {
-                console.error("Delete failed after retries:", err);
-                return false;
+            const status = err?.status ?? err?.response?.status;
+            if (status === 429) {
+                const retryAfter = err?.body?.retry_after ?? err?.response?.body?.retry_after ?? 2;
+                await wait(retryAfter * 1000 + 500);
+                continue;
             }
-            await wait(200 * Math.pow(2, attempt));
+            if (status === 404) return true;
+            if (attempt === 9) return false;
+            await wait(300 * Math.pow(2, attempt));
         }
     }
     return false;
 }
 
 async function deleteMessagesInChannel(channelId: string, authorId: string) {
-    if (deleteState.running) {
-        sendBotMessage(channelId, {
-            content: "A deletion process is already running.",
-        });
+    let consecutiveEmpty = 0;
+    const maxConsecutiveEmpty = 20;
+
+    while (state.running) {
+        await wait(settings.store.searchDelay);
+
+        const result = await searchMessages(channelId, authorId, 0);
+
+        if (!result || !result.messages) {
+            consecutiveEmpty++;
+            if (consecutiveEmpty >= maxConsecutiveEmpty) break;
+            await wait(3000);
+            continue;
+        }
+
+        const nonDeletableTypes = new Set([3, 7, 8, 9, 10, 11, 12]);
+        const messages = result.messages.flat().filter((m: any) =>
+            m.author?.id === authorId && !nonDeletableTypes.has(m.type)
+        );
+
+        if (messages.length === 0) {
+            if ((result.total_results ?? 0) === 0) {
+                consecutiveEmpty++;
+                if (consecutiveEmpty >= maxConsecutiveEmpty) break;
+                await wait(3000);
+            } else {
+                await wait(2000);
+            }
+            continue;
+        }
+
+        consecutiveEmpty = 0;
+
+        if (result.total_results) {
+            state.total = Math.max(state.total, state.current + result.total_results);
+            updateProgressBar(state.phase, state.current, state.total);
+        }
+
+        for (const msg of messages) {
+            if (!state.running) return;
+            await wait(settings.store.deleteDelay);
+            await deleteMessage(channelId, msg.id);
+        }
+
+        await wait(300);
+    }
+}
+
+async function runDeleteMessages(channelId: string) {
+    if (state.running) {
+        sendBotMessage(channelId, { content: "Already running." });
         return;
     }
 
-    deleteState.running = true;
-    deleteState.startTime = new Date();
-    let offset = 0;
-    let consecutiveFailures = 0;
-    let emptySearchCount = 0;
+    state.running = true;
+    state.startTime = new Date();
+    state.current = 0;
+    state.total = 0;
+    state.phase = "Deleting Messages";
+    abortController = new AbortController();
 
-    sendBotMessage(channelId, {
-        content: "Starting message deletion...",
-    });
+    createProgressBar();
+    updateProgressBar(state.phase, 0, 0);
+
+    const userId = UserStore.getCurrentUser().id;
 
     try {
-        while (deleteState.running) {
-            await wait(settings.store.searchDelay);
+        await deleteMessagesInChannel(channelId, userId);
+        const elapsed = Math.round((Date.now() - (state.startTime?.getTime() ?? Date.now())) / 1000);
+        sendBotMessage(channelId, {
+            content: `Deleted ${state.current} messages in ${elapsed}s`,
+        });
+    } catch (err: any) {
+        if (err?.message !== "aborted")
+            sendBotMessage(channelId, { content: `Error: ${err}` });
+    } finally {
+        removeProgressBar();
+        resetState();
+    }
+}
 
-            const searchResult = await searchMessages(channelId, authorId, offset);
+async function runLeaveServers(channelId: string) {
+    if (state.running) {
+        sendBotMessage(channelId, { content: "Already running." });
+        return;
+    }
 
-            if (!searchResult || !searchResult.messages || searchResult.messages.length === 0) {
-                emptySearchCount++;
-                
-                if (emptySearchCount < 5) {
-                    offset = 0;
-                    await wait(2000);
-                    continue;
-                }
-                
-                break;
-            }
+    state.running = true;
+    state.startTime = new Date();
+    state.current = 0;
+    state.phase = "Leaving Servers";
+    abortController = new AbortController();
 
-            emptySearchCount = 0;
-            consecutiveFailures = 0;
-            const messages = searchResult.messages.flat();
-            deleteState.grandTotal = searchResult.total_results || messages.length;
+    const guilds = Object.keys(GuildStore.getGuilds());
+    state.total = guilds.length;
 
-            let deletedInBatch = 0;
-            for (const message of messages) {
-                if (!deleteState.running) break;
+    createProgressBar();
+    updateProgressBar(state.phase, 0, state.total);
 
-                await wait(settings.store.deleteDelay);
-                const success = await deleteMessage(channelId, message.id);
-                
-                if (success) {
-                    deletedInBatch++;
-                } else {
-                    await wait(1000);
-                }
+    try {
+        for (const guildId of guilds) {
+            if (!state.running) break;
+            try {
+                await RestAPI.del({ url: `/users/@me/guilds/${guildId}` });
+            } catch {}
+            state.current++;
+            updateProgressBar(state.phase, state.current, state.total);
+            await wait(500);
+        }
 
-                if (deleteState.delCount % 50 === 0 && deleteState.delCount > 0) {
-                    const progress = deleteState.grandTotal > 0 
-                        ? Math.round((deleteState.delCount / deleteState.grandTotal) * 100)
-                        : 0;
-                    sendBotMessage(channelId, {
-                        content: `Progress: ${progress}% (${deleteState.delCount} deleted)`,
+        const elapsed = Math.round((Date.now() - (state.startTime?.getTime() ?? Date.now())) / 1000);
+        sendBotMessage(channelId, {
+            content: `Left ${state.current}/${state.total} servers in ${elapsed}s`,
+        });
+    } catch (err: any) {
+        if (err?.message !== "aborted")
+            sendBotMessage(channelId, { content: `Error: ${err}` });
+    } finally {
+        removeProgressBar();
+        resetState();
+    }
+}
+
+async function runRemoveFriends(channelId: string) {
+    if (state.running) {
+        sendBotMessage(channelId, { content: "Already running." });
+        return;
+    }
+
+    state.running = true;
+    state.startTime = new Date();
+    state.current = 0;
+    state.phase = "Removing Friends";
+    abortController = new AbortController();
+
+    const friends = RelationshipStore.getFriendIDs();
+    state.total = friends.length;
+
+    createProgressBar();
+    updateProgressBar(state.phase, 0, state.total);
+
+    try {
+        for (const userId of friends) {
+            if (!state.running) break;
+            try {
+                await RestAPI.del({ url: `/users/@me/relationships/${userId}` });
+            } catch {}
+            state.current++;
+            updateProgressBar(state.phase, state.current, state.total);
+            await wait(300);
+        }
+
+        const elapsed = Math.round((Date.now() - (state.startTime?.getTime() ?? Date.now())) / 1000);
+        sendBotMessage(channelId, {
+            content: `Removed ${state.current}/${state.total} friends in ${elapsed}s`,
+        });
+    } catch (err: any) {
+        if (err?.message !== "aborted")
+            sendBotMessage(channelId, { content: `Error: ${err}` });
+    } finally {
+        removeProgressBar();
+        resetState();
+    }
+}
+
+async function runCleanAccount(channelId: string) {
+    if (state.running) {
+        sendBotMessage(channelId, { content: "Already running." });
+        return;
+    }
+
+    state.running = true;
+    state.startTime = new Date();
+    abortController = new AbortController();
+
+    createProgressBar();
+
+    try {
+        const userId = UserStore.getCurrentUser().id;
+
+        state.phase = "Deleting DM Messages";
+        state.current = 0;
+        state.total = 0;
+        updateProgressBar(state.phase, 0, 0);
+
+        const dmChannels = await RestAPI.get({ url: "/users/@me/channels" });
+        const channels: any[] = dmChannels.body || [];
+
+        for (const ch of channels) {
+            if (!state.running) break;
+            await deleteMessagesInChannel(ch.id, userId);
+        }
+
+        if (state.running) {
+            const friends = RelationshipStore.getFriendIDs();
+            state.phase = "Cleaning Friends";
+            state.current = 0;
+            state.total = friends.length;
+            updateProgressBar(state.phase, 0, state.total);
+
+            for (const friendId of friends) {
+                if (!state.running) break;
+
+                try {
+                    const dmRes = await RestAPI.post({
+                        url: "/users/@me/channels",
+                        body: { recipient_id: friendId },
                     });
-                }
-            }
+                    const dmChannel = dmRes.body;
 
-            if (deletedInBatch === 0) {
-                consecutiveFailures++;
-                if (consecutiveFailures >= 3) {
-                    await wait(5000);
-                    consecutiveFailures = 0;
-                }
-            }
+                    if (dmChannel?.id) {
+                        await deleteMessagesInChannel(dmChannel.id, userId);
+                    }
 
-            if (messages.length < 25) {
-                offset = 0;
-                await wait(2000);
-            } else {
-                offset += 25;
+                    await RestAPI.del({ url: `/users/@me/relationships/${friendId}` });
+                } catch {}
+
+                state.current++;
+                updateProgressBar(state.phase, state.current, state.total);
+                await wait(300);
             }
         }
 
-        const elapsed = deleteState.startTime
-            ? Math.round((Date.now() - deleteState.startTime.getTime()) / 1000)
-            : 0;
+        if (state.running) {
+            state.phase = "Deleting Channel Messages";
+            state.current = 0;
+            state.total = 0;
+            updateProgressBar(state.phase, 0, 0);
+            await deleteMessagesInChannel(channelId, userId);
+        }
 
-        sendBotMessage(channelId, {
-            content: `Deletion completed.\nDeleted: ${deleteState.delCount} messages\nTime: ${elapsed}s`,
-        });
-    } catch (err) {
-        sendBotMessage(channelId, {
-            content: `Error occurred: ${err}`,
-        });
+        if (state.running) {
+            state.phase = "Leaving Servers";
+            state.current = 0;
+            const guilds = Object.keys(GuildStore.getGuilds());
+            state.total = guilds.length;
+            updateProgressBar(state.phase, 0, state.total);
+
+            for (const guildId of guilds) {
+                if (!state.running) break;
+                try {
+                    await RestAPI.del({ url: `/users/@me/guilds/${guildId}` });
+                } catch {}
+                state.current++;
+                updateProgressBar(state.phase, state.current, state.total);
+                await wait(500);
+            }
+        }
+
+        const elapsed = Math.round((Date.now() - (state.startTime?.getTime() ?? Date.now())) / 1000);
+        sendBotMessage(channelId, { content: `Account cleaned in ${elapsed}s` });
+    } catch (err: any) {
+        if (err?.message !== "aborted")
+            sendBotMessage(channelId, { content: `Error: ${err}` });
     } finally {
+        removeProgressBar();
+        resetState();
+    }
+}
+
+// ─── الأمر الخامس: يحذف رسائلك فقط من كل مكان بدون يشيل أحد أو يطلعك ────────
+async function runDeleteAllMessages(channelId: string) {
+    if (state.running) {
+        sendBotMessage(channelId, { content: "Already running." });
+        return;
+    }
+
+    state.running = true;
+    state.startTime = new Date();
+    state.current = 0;
+    state.total = 0;
+    abortController = new AbortController();
+
+    createProgressBar();
+
+    try {
+        const userId = UserStore.getCurrentUser().id;
+
+        // ── 1. رسائل الفرندز (فتح DM لكل فريند وحذف رسائلك فقط) ──
+        const friends = RelationshipStore.getFriendIDs();
+        state.phase = "Friends DMs";
+            updateProgressBar(state.phase, state.current, state.total);
+
+            for (const friendId of friends) {
+                if (!state.running) break;
+                try {
+                    const dmRes = await RestAPI.post({
+                        url: "/users/@me/channels",
+                        body: { recipient_id: friendId },
+                    });
+                    const dmChannel = dmRes.body;
+                    if (dmChannel?.id) {
+                        await deleteMessagesInChannel(dmChannel.id, userId);
+                    }
+                } catch {}
+                await wait(300);
+            }
+
+        // ── 2. كل السيرفرات (بحث عن رسائلك في كل قناة) ──
+        if (state.running) {
+            const guilds = Object.keys(GuildStore.getGuilds());
+            state.phase = "Servers";
+            updateProgressBar(state.phase, state.current, state.total);
+
+            for (const guildId of guilds) {
+                if (!state.running) break;
+                try {
+                    // جيب كل القنوات في السيرفر
+                    const chRes = await RestAPI.get({ url: `/guilds/${guildId}/channels` });
+                    const guildChannels: any[] = chRes.body || [];
+
+                    // نص فقط (type 0) أو thread (type 11, 12)
+                    const textChannels = guildChannels.filter((c: any) =>
+                        [0, 5, 10, 11, 12].includes(c.type)
+                    );
+
+                    for (const ch of textChannels) {
+                        if (!state.running) break;
+                        await deleteMessagesInChannel(ch.id, userId);
+                    }
+                } catch {}
+                await wait(300);
+            }
+        }
+
+        const elapsed = Math.round((Date.now() - (state.startTime?.getTime() ?? Date.now())) / 1000);
+        sendBotMessage(channelId, {
+            content: `Done! Deleted ${state.current} messages across all DMs and servers in ${elapsed}s`,
+        });
+    } catch (err: any) {
+        if (err?.message !== "aborted")
+            sendBotMessage(channelId, { content: `Error: ${err}` });
+    } finally {
+        removeProgressBar();
         resetState();
     }
 }
 
 export default definePlugin({
-    name: "ClearMessages",
-    description: "Delete your messages, if u want to delete ur message type to dm this command /delete ",
-    authors: [Devs.sexwithppl],
+    name: "cleaner",
+    description: "A powerful account cleanup tool. Delete all your messages, leave all servers, remove all friends, or run a full account wipe with a single command.",
+    authors: [Devs.sexwithppl, Devs.pluckerpilple],
     settings,
 
     commands: [
         {
-            name: "delete",
-            description: "Delete your messages",
+            name: "clean-messages",
+            description: "Delete all your messages in the current channel",
             inputType: ApplicationCommandInputType.BUILT_IN,
-            execute: async (args, ctx) => {
-                const currentUserId = UserStore.getCurrentUser().id;
-                await deleteMessagesInChannel(ctx.channel.id, currentUserId);
+            execute: async (_, ctx) => {
+                await runDeleteMessages(ctx.channel.id);
             },
         },
         {
-            name: "stop-delete",
-            description: "Stop the delete message",
+            name: "clean-servers",
+            description: "Leave all servers you are in",
             inputType: ApplicationCommandInputType.BUILT_IN,
             execute: async (_, ctx) => {
-                if (deleteState.running) {
-                    deleteState.running = false;
-                    sendBotMessage(ctx.channel.id, {
-                        content: "Deletion process stopped.",
-                    });
-                } else {
-                    sendBotMessage(ctx.channel.id, {
-                        content: "No deletion process is running.",
-                    });
-                }
+                await runLeaveServers(ctx.channel.id);
+            },
+        },
+        {
+            name: "clean-friends",
+            description: "Remove all friends from your account",
+            inputType: ApplicationCommandInputType.BUILT_IN,
+            execute: async (_, ctx) => {
+                await runRemoveFriends(ctx.channel.id);
+            },
+        },
+        {
+            name: "clean-account",
+            description: "Full account wipe: delete messages, leave servers, remove friends",
+            inputType: ApplicationCommandInputType.BUILT_IN,
+            execute: async (_, ctx) => {
+                await runCleanAccount(ctx.channel.id);
+            },
+        },
+        {
+            name: "clean-all-messages",
+            description: "Delete all your messages from all DMs, friends, and servers — without leaving or removing anyone",
+            inputType: ApplicationCommandInputType.BUILT_IN,
+            execute: async (_, ctx) => {
+                await runDeleteAllMessages(ctx.channel.id);
             },
         },
     ],
