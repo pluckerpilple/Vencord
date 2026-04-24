@@ -161,7 +161,8 @@ export default definePlugin({
 
     patches: [
         {
-            find: ".hasAvatarForGuild(null==",
+            // Same find as ReviewDB
+            find: "#{intl::XcTHmQ::raw}",
             replacement: {
                 match: /currentUser:\i,guild:\i[^}]*?\}\)(?=])(?<=user:(\i),bio:null==(\i)\?.+?)/,
                 replace: "$&,$self.profilePopoutComponent({ user: $1, displayProfile: $2 })"
