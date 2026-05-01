@@ -152,7 +152,7 @@ function RolesAndUsersPermissionsComponent({ permissions, guild, modalProps, hea
                                                             ? (user != null && getUniqueUsername(user)) ?? "Unknown User"
                                                             : (
                                                                 <Flex gap="0.2em">
-                                                                    @owner
+                                                                    @ ( Server_OWNER )
                                                                     <OwnerCrownIcon height={18} width={18} aria-hidden="true" />
                                                                 </Flex>
                                                             )

@@ -164,8 +164,8 @@ export default definePlugin({
             // Same find as ReviewDB
             find: "#{intl::USER_PROFILE_FRIEND_REQUEST_TOAST}",
             replacement: {
-                match: /userId:\i\.id,guild:\i\}\)(?=])/,
-                replace: "$&,$self.profilePopoutComponent(arguments[0])"
+                match: /currentUser:\i,guild:\i[^}]*?\}\)(?=])(?<=user:(\i),bio:null==(\i)\?.+?)/,
+                replace: "$&,$self.profilePopoutComponent({ user: $1, displayProfile: $2 })"
             }
         }
     ],
