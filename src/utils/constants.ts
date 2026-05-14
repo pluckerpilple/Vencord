@@ -145,6 +145,10 @@ export const Devs = /* #__PURE__*/ Object.freeze({
         name: "D3SOX",
         id: 201052085641281538n
     },
+    omaw: {
+        name: "omaw",
+        id: 1155026301791514655n
+    },
     Nickyux: {
         name: "Nickyux",
         id: 427146305651998721n
@@ -257,6 +261,10 @@ export const Devs = /* #__PURE__*/ Object.freeze({
     Vap: {
         name: "Vap0r1ze",
         id: 454072114492866560n
+    },
+    KrystalSkull: {
+        name: "krystalskullofficial",
+        id: 929208515883569182n
     },
     KingFish: {
         name: "King Fish",
